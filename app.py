@@ -102,7 +102,7 @@ def search_web(query, max_results=30, page=1, backend='auto'):
     results = []
     try:
         ddgs = DDGS()
-        for r in ddgs.text(query, max_results=max_results, page=page, backend=backend):
+        for r in ddgs.text(query, max_results=max_results, backend=backend):
             title = r.get('title', '').strip()
             href = r.get('href', '').strip()
             body = r.get('body', '').strip()
@@ -384,10 +384,10 @@ def bulk_scrape():
     ]
 
     all_raw = []
-    # Run pages 1-5 for each query + extra with html backend
-    all_tasks = [(q, p, 'auto') for q in queries for p in [1, 2, 3]]
+    # Run each query with auto backend
+    all_tasks = [(q, 'auto') for q in queries]
     with cf.ThreadPoolExecutor(max_workers=24) as pool:
-        futures = {pool.submit(lambda t=t: search_web(t[0], max_results=15, page=t[1], backend=t[2])): t for t in all_tasks}
+        futures = {pool.submit(lambda t=t: search_web(t[0], max_results=30, backend=t[1])): t for t in all_tasks}
         for f in cf.as_completed(futures):
             try:
                 all_raw.extend(f.result())
