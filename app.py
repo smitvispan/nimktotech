@@ -3,7 +3,7 @@ from flask import Flask, jsonify, render_template, request, redirect, url_for, f
 from flask_cors import CORS
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 from config import DATABASE_URL, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SOCKET, OPENROUTER_KEY, AI_MODEL, GEMINI_KEYS as _GEMINI_KEYS, GEMINI_MODEL as _GEMINI_MODEL, SECRET_KEY
 
