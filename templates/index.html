@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Business Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .spinner-border { display: none; }
+        .loading .spinner-border { display: inline-block; }
+        .table th { white-space: nowrap; font-size: 13px; }
+        .table td { font-size: 13px; vertical-align: middle; }
+        .email-tag { font-size: 11px; }
+        .nav-link { font-weight: 500; }
+        .result-item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .result-item:hover { background: #f8f9fa; }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4 px-4">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">🌐 Google-style Live Business Search</h4>
+                <small>Type any city & business → fetches live from web + auto-scrapes emails, LinkedIn, owner info</small>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">City / Location</label>
+                        <input type="text" id="city" class="form-control form-control-lg" value="Rajkot" placeholder="e.g. Rajkot, Surat, Ahmedabad">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Business Type</label>
+                        <input type="text" id="btype" class="form-control form-control-lg" value="Hardware" placeholder="e.g. Hardware, Restaurant, Electronics">
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button id="search-btn" class="btn btn-success btn-lg w-100" onclick="liveSearch()">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            🔍 Search from Web
+                        </button>
+                    </div>
+                </div>
+                <div class="row g-3 mt-2">
+                    <div class="col-md-6">
+                        <label class="form-label">Also scrape each website for (slower but more data):</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="scrapeToggle" checked>
+                            <label class="form-check-label">Auto-scrape emails, LinkedIn, owner info from each site</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="search-status" class="text-muted small mb-2"></div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Results</h5>
+                <span id="result-count" class="badge bg-light text-dark fs-6 px-3">0</span>
+            </div>
+            <div id="results" class="card-body p-0">
+                <div class="text-center py-5">
+                    <p class="text-muted mb-0 fs-5">Enter city & business type, then click Search</p>
+                    <p class="text-muted small mt-2">Searches web for business listings + visits websites to find email, LinkedIn, owner</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let searchInProgress = false;
+
+        async function liveSearch() {
+            if (searchInProgress) return;
+
+            const btn = document.getElementById('search-btn');
+            btn.classList.add('loading');
+            btn.disabled = true;
+            searchInProgress = true;
+
+            const city = document.getElementById('city').value.trim();
+            const btype = document.getElementById('btype').value.trim();
+            const doScrape = document.getElementById('scrapeToggle').checked;
+            const status = document.getElementById('search-status');
+            const container = document.getElementById('results');
+            const countEl = document.getElementById('result-count');
+
+            if (!city || !btype) {
+                container.innerHTML = '<div class="alert alert-warning m-3">Enter both city and business type</div>';
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                searchInProgress = false;
+                return;
+            }
+
+            status.textContent = 'Searching web for ' + btype + ' in ' + city + '...';
+            container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-success fs-1"></div><p class="mt-3 fs-5">Searching the web...</p></div>';
+            countEl.textContent = '...';
+
+            try {
+                const api = doScrape ? 'bulk-scrape' : 'live-search';
+                const resp = await fetch(`/api/${api}?city=${encodeURIComponent(city)}&type=${encodeURIComponent(btype)}`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    container.innerHTML = `<div class="alert alert-warning m-3">${data.error}</div>`;
+                    countEl.textContent = '0';
+                    status.textContent = 'Error: ' + data.error;
+                    return;
+                }
+
+                if (!data.length) {
+                    container.innerHTML = '<div class="alert alert-info m-3">No results found. Try different search terms.</div>';
+                    countEl.textContent = '0';
+                    status.textContent = '0 results found';
+                    return;
+                }
+
+                countEl.textContent = data.length;
+                status.textContent = data.length + ' results found from web search';
+
+                let html = '<div class="table-responsive"><table class="table table-bordered table-hover mb-0"><thead class="table-dark" style="position:sticky;top:0">';
+                if (doScrape) {
+                    html += '<tr><th>#</th><th>Business Name</th><th>Website</th><th>Email(s)</th><th>LinkedIn</th><th>Phone</th><th>About</th></tr>';
+                } else {
+                    html += '<tr><th>#</th><th>Business Name</th><th>Website</th><th>About</th></tr>';
+                }
+                html += '</thead><tbody>';
+
+                data.forEach((b, i) => {
+                    html += `<tr>
+                        <td>${i + 1}</td>
+                        <td><strong>${b.name || '-'}</strong></td>
+                        <td>${b.website ? `<a href="${b.website}" target="_blank" class="text-decoration-none" title="${b.website}">Visit</a>` : '-'}</td>
+                        ${doScrape ? `
+                        <td>${b.emails && b.emails.length ? b.emails.map(e => `<a href="mailto:${e}" class="text-decoration-none">${e}</a>`).join('<br>') : '<span class="text-muted">-</span>'}</td>
+                        <td>${b.linkedin && b.linkedin.length ? b.linkedin.map(l => `<a href="${l}" target="_blank" class="text-decoration-none">LinkedIn</a>`).join('<br>') : '<span class="text-muted">-</span>'}</td>
+                        <td>${b.phones && b.phones.length ? b.phones.join('<br>') : '<span class="text-muted">-</span>'}</td>
+                        <td><small class="text-muted">${(b.snippet || b.page_title || '').substring(0, 150)}</small></td>
+                        ` : `
+                        <td><small class="text-muted">${(b.snippet || '').substring(0, 200)}</small></td>
+                        `}
+                    </tr>`;
+                });
+
+                html += '</tbody></table></div>';
+                container.innerHTML = html;
+
+                if (doScrape) {
+                    status.textContent += ' (auto-scraped ' + data.length + ' websites for contact info)';
+                }
+
+            } catch (err) {
+                container.innerHTML = `<div class="alert alert-danger m-3">Error: ${err.message}</div>`;
+                countEl.textContent = 'Error';
+                status.textContent = 'Error occurred';
+            }
+
+            btn.classList.remove('loading');
+            btn.disabled = false;
+            searchInProgress = false;
+        }
+
+        document.getElementById('city').addEventListener('keyup', e => { if (e.key === 'Enter') liveSearch(); });
+        document.getElementById('btype').addEventListener('keyup', e => { if (e.key === 'Enter') liveSearch(); });
+    </script>
+</body>
+</html>

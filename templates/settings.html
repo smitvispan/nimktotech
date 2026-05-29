@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Business Directory</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --sidebar-w: 260px; --primary: #6366f1; --bg: #f8fafc; --text: #1e293b; --border: #e2e8f0; --radius: 16px; --radius-sm: 10px; }
+        * { box-sizing: border-box; }
+        body { background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); margin: 0; }
+        .sidebar { position: fixed; top:0; left:0; bottom:0; width:var(--sidebar-w); background:linear-gradient(170deg,#0f172a 0%,#1e293b 100%); z-index:1000; display:flex; flex-direction:column; }
+        .sidebar-brand { padding:24px 20px 20px; border-bottom:1px solid rgba(255,255,255,.06); }
+        .sidebar-brand .logo-icon { width:40px; height:40px; background:linear-gradient(135deg,var(--primary),#a855f7); border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; color:#fff; }
+        .sidebar-brand h5 { color:#fff; font-weight:700; font-size:15px; margin:0; }
+        .sidebar-brand small { color:rgba(255,255,255,.4); font-size:11px; }
+        .sidebar-nav { flex:1; padding:12px; overflow-y:auto; }
+        .sidebar-nav .nav-link { color:rgba(255,255,255,.55); padding:10px 14px; border-radius:var(--radius-sm); margin-bottom:2px; font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:12px; transition:all .2s; }
+        .sidebar-nav .nav-link:hover { background:rgba(255,255,255,.07); color:#fff; }
+        .sidebar-nav .nav-link.active { background:var(--primary); color:#fff; }
+        .sidebar-nav .nav-link i { width:20px; text-align:center; font-size:16px; }
+        .sidebar-footer { padding:16px 20px; border-top:1px solid rgba(255,255,255,.06); }
+        .sidebar-footer .avatar { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,var(--primary),#a855f7); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-size:14px; }
+        .sidebar-footer .user-name { color:#fff; font-size:13px; font-weight:600; }
+        .sidebar-footer .user-role { color:rgba(255,255,255,.35); font-size:11px; }
+        .main { margin-left:var(--sidebar-w); min-height:100vh; padding:24px 32px; }
+        .page-header { margin-bottom:24px; }
+        .page-header h2 { font-weight:700; font-size:22px; }
+        .page-header p { color:#64748b; font-size:14px; margin:0; }
+        .card { background:#fff; border-radius:var(--radius); border:1px solid var(--border); padding:24px; margin-bottom:16px; }
+        .card h5 { font-weight:600; font-size:15px; margin-bottom:6px; }
+        .card p { color:#64748b; font-size:13px; margin-bottom:16px; }
+        .form-label { font-size:13px; font-weight:600; color:#475569; }
+        .form-control { border-radius:var(--radius-sm); border:1px solid var(--border); padding:10px 14px; font-size:13px; }
+        .btn-primary { background:var(--primary); border:0; padding:10px 24px; border-radius:var(--radius-sm); font-weight:600; font-size:13px; }
+        .flash { padding:12px 16px; border-radius:var(--radius-sm); margin-bottom:16px; font-size:13px; font-weight:500; }
+        .flash.success { background:#dcfce7; color:#166534; }
+        .flash.error { background:#fce4ec; color:#c62828; }
+    </style>
+</head>
+<body>
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <div class="logo-icon"><i class="bi bi-buildings"></i></div>
+            <div><h5>BusinessDir</h5><small>Live Directory</small></div>
+        </div>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="{{ url_for('dashboard') }}" class="nav-link"><i class="bi bi-search"></i> Search</a>
+        <a href="{{ url_for('history') }}" class="nav-link"><i class="bi bi-clock-history"></i> History</a>
+        <a href="{{ url_for('export_data') }}" class="nav-link"><i class="bi bi-download"></i> Export</a>
+        <a href="{{ url_for('settings_page') }}" class="nav-link active"><i class="bi bi-gear"></i> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div class="avatar">{{ username[:2].upper() }}</div>
+            <div><div class="user-name">{{ username }}</div><div class="user-role">Administrator</div></div>
+        </div>
+        <a href="{{ url_for('logout') }}" class="nav-link mt-2" style="padding:8px 12px;border-radius:8px;color:rgba(255,255,255,.45);font-size:12px;display:flex;align-items:center;gap:8px;"><i class="bi bi-box-arrow-right"></i> Sign out</a>
+    </div>
+</aside>
+
+<div class="main">
+    <div class="page-header">
+        <h2><i class="bi bi-gear" style="color:var(--primary)"></i> Settings</h2>
+        <p>Manage your account settings</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <h5><i class="bi bi-person" style="color:var(--primary)"></i> Account</h5>
+        <p>Username: <strong>{{ username }}</strong></p>
+    </div>
+
+    <div class="card">
+        <h5><i class="bi bi-key" style="color:var(--primary)"></i> Change Password</h5>
+        <p>Update your account password.</p>
+        <form method="POST" action="{{ url_for('settings_page') }}">
+            <div class="mb-3">
+                <label class="form-label">Current Password</label>
+                <input type="password" name="current_password" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">New Password</label>
+                <input type="password" name="new_password" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Confirm New Password</label>
+                <input type="password" name="confirm_password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Update Password</button>
+        </form>
+    </div>
+
+    <div class="card" style="border-color:#fecaca;">
+        <h5 style="color:#dc2626;"><i class="bi bi-trash"></i> Danger Zone</h5>
+        <p>Clear all your search history.</p>
+        <form method="POST" action="{{ url_for('settings_page') }}" onsubmit="return confirm('Delete all history?');">
+            <input type="hidden" name="clear_history" value="1">
+            <button type="submit" class="btn" style="background:#fee2e2;color:#dc2626;border:0;padding:10px 24px;border-radius:var(--radius-sm);font-weight:600;font-size:13px;"><i class="bi bi-trash"></i> Clear History</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>
