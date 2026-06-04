@@ -405,47 +405,61 @@ def bulk_scrape():
 
     import time
     all_raw = []
-    # Run each query sequentially with a small delay to avoid rate limiting
+    # Single backend per query with higher max_results — lite and html return same data
     for q in queries:
-        for backend in ['lite', 'html']:
-            try:
-                res = search_web(q, max_results=30, backend=backend)
-                all_raw.extend(res)
-                time.sleep(0.3)
-                if len(all_raw) >= 300:
-                    break
-            except Exception as e:
-                print(f"Search query error for '{q}' backend={backend}: {e}")
-            if len(all_raw) >= 300:
-                break
+        try:
+            res = search_web(q, max_results=50, backend='lite')
+            all_raw.extend(res)
+            time.sleep(0.4)
+        except Exception as e:
+            print(f"Search query error for '{q}': {e}")
+        if len(all_raw) >= 400:
+            break
 
-    # ── Smart city-relevance filter ──
-    # INDIAN DIRECTORY SITES: if city is in the URL → trusted, keep it
-    # ALL OTHER SITES: city must appear in snippet OR title
-    DIRECTORY_DOMAINS = ['indiamart.com', 'justdial.com', 'sulekha.com', 'tradeindia.com',
-                         'exportersindia.com', 'yellowpages.in', 'linkedin.com']
+    # ── City relevance SCORING (no hard drop) ──
+    # City results sort to top; non-city results appear at bottom
+    # This preserves 80+ total results while Rajkot ones come first
     city_lower = city.lower() if city else ''
+    INDIA_DIRS = ['indiamart.com', 'justdial.com', 'sulekha.com', 'tradeindia.com',
+                  'exportersindia.com', 'yellowpages.in']
+    INDIAN_STATES = ['gujarat', 'maharashtra', 'rajasthan', 'punjab', 'india',
+                     'delhi', 'mumbai', 'ahmedabad', 'surat', 'vadodara']
 
-    def is_city_relevant(r):
+    def city_score(r):
+        """Higher = more city-relevant. Used for sorting, NOT filtering."""
+        score = 0
         if not city_lower:
-            return True
-        url = r.get('website', '').lower()
-        # For directory domains: trust if city appears in URL
-        if any(d in url for d in DIRECTORY_DOMAINS):
-            if city_lower in url:
-                return True
-        # For all sites: check snippet + name
-        haystack = (r.get('snippet', '') + ' ' + r.get('name', '')).lower()
-        return city_lower in haystack
+            return 0
+        url  = r.get('website', '').lower()
+        snip = r.get('snippet', '').lower()
+        name = r.get('name', '').lower()
+        # City in URL → very strong signal (directory pages)
+        if city_lower in url: score += 10
+        # City in snippet
+        if city_lower in snip: score += 6
+        # City in title/name
+        if city_lower in name: score += 4
+        # Indian directory domain → trust it regardless
+        if any(d in url for d in INDIA_DIRS): score += 3
+        # Indian context in snippet (state, country)
+        if any(s in snip for s in INDIAN_STATES): score += 2
+        # Penalise obviously non-Indian results (USD, US states, etc.)
+        non_india = ['washington', 'california', 'texas', 'florida', 'new york',
+                     'canada', 'australia', '\$', 'zip code', 'united states']
+        if any(x in snip for x in non_india): score -= 8
+        return score
 
-    seen = set(); results = []
+    seen = set(); scored = []
     for r in all_raw:
         key = re.sub(r'[^a-z0-9]', '', r.get('name', '').lower())[:30]
         if not key or key in seen:
             continue
-        if not is_city_relevant(r):
-            continue
-        seen.add(key); results.append(r)
+        seen.add(key)
+        scored.append((city_score(r), r))
+
+    # Sort by city score descending, then extract
+    scored.sort(key=lambda x: -x[0])
+    results = [r for _, r in scored]
 
 
     def extract(r):
@@ -543,8 +557,14 @@ def bulk_scrape():
     except Exception as e:
         print(f"LinkedIn search error: {e}")
 
-    # Sort: results with contact data first
-    final.sort(key=lambda f: -(len(f.get('phones',[])) + len(f.get('emails',[])) * 2 + (2 if f.get('owner_name') else 0) + len(f.get('linkedin',[])) * 3))
+    # Sort: city-relevance first, then contact richness
+    final.sort(key=lambda f: -(
+        (10 if city_lower and city_lower in (f.get('snippet','') + f.get('name','')).lower() else 0) +
+        len(f.get('phones',[])) * 3 +
+        len(f.get('emails',[])) * 2 +
+        (2 if f.get('owner_name') else 0) +
+        len(f.get('linkedin',[])) * 1
+    ))
 
     # Save to history
     try:
