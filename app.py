@@ -357,6 +357,16 @@ def bulk_scrape():
     if not business_type:
         return jsonify({'error': 'Business type required'}), 400
 
+    try:
+        return _do_bulk_scrape(city, business_type)
+    except Exception as e:
+        import traceback
+        print(f"bulk_scrape crashed: {traceback.format_exc()}")
+        return jsonify({'error': f'Search failed: {str(e)}'}), 500
+
+
+def _do_bulk_scrape(city, business_type):
+
     import concurrent.futures as cf
     import time
 
@@ -420,13 +430,13 @@ def bulk_scrape():
     # ─────────────────────────────────────────────────────
     all_raw = []
     for q in queries:
-        for backend in ['api', 'lite', 'html']:
+        for backend in ['lite', 'html']:   # 'api' not supported in v8.1.1
             try:
                 res = search_web(q, max_results=50, backend=backend)
                 if res:
                     all_raw.extend(res)
                     time.sleep(0.3)
-                    break   # Got results — don't need next backend for this query
+                    break   # Got results — don't try next backend
             except Exception as e:
                 print(f"Search '{q}' backend={backend}: {e}")
         if len(all_raw) >= 500:
