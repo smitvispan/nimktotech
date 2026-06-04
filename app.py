@@ -360,27 +360,29 @@ def bulk_scrape():
     import concurrent.futures as cf
 
     # Phase 1: Maximum search angles — 14+ queries for 80+ results
+    # City is quoted in every query so DuckDuckGo returns city-specific results only
     has_city = bool(city)
     queries = []
     if has_city:
+        cq = f'"{city}"'  # quoted city for precision
         queries = [
-            # Directory sites (structured listings with contact info)
-            f"site:indiamart.com {business_type} {city}",
-            f"site:justdial.com {business_type} {city}",
-            f"site:sulekha.com {business_type} {city}",
-            f"site:tradeindia.com {business_type} {city}",
-            f"site:exportersindia.com {business_type} {city}",
-            f"site:yellowpages.in {business_type} {city}",
-            # LinkedIn - people and companies
-            f"site:linkedin.com/in/ {business_type} owner {city}",
-            f"site:linkedin.com/company/ {business_type} {city}",
-            # Google-style open queries
-            f"{business_type} company in {city}",
-            f"{business_type} supplier {city}",
-            f"{business_type} manufacturer {city}",
-            f"{business_type} dealer {city} contact",
-            f"{business_type} {city} phone email",
-            f"top {business_type} companies in {city}",
+            # Structured B2B/local directories
+            f"site:indiamart.com {business_type} {cq}",
+            f"site:justdial.com {business_type} {cq}",
+            f"site:sulekha.com {business_type} {cq}",
+            f"site:tradeindia.com {business_type} {cq}",
+            f"site:exportersindia.com {business_type} {cq}",
+            f"site:yellowpages.in {business_type} {cq}",
+            # LinkedIn (people + companies)
+            f"site:linkedin.com/in/ {business_type} {cq}",
+            f"site:linkedin.com/company/ {business_type} {cq}",
+            # Direct web searches — city quoted
+            f"{business_type} in {cq}",
+            f"{business_type} company {cq}",
+            f"{business_type} supplier {cq}",
+            f"{business_type} manufacturer {cq}",
+            f"{business_type} dealer {cq} contact phone",
+            f"top {business_type} companies {cq}",
         ]
     else:
         queries = [
@@ -390,7 +392,7 @@ def bulk_scrape():
             f"site:tradeindia.com {business_type} India",
             f"site:exportersindia.com {business_type} India",
             f"site:yellowpages.in {business_type}",
-            f"site:linkedin.com/in/ {business_type} owner India",
+            f"site:linkedin.com/in/ {business_type} India",
             f"site:linkedin.com/company/ {business_type} India",
             f"{business_type} company India",
             f"{business_type} supplier India",
@@ -417,10 +419,22 @@ def bulk_scrape():
                 break
 
     seen = set(); results = []
+    city_lower = city.lower() if city else ''
     for r in all_raw:
         key = re.sub(r'[^a-z0-9]', '', r.get('name', '').lower())[:30]
-        if key and key not in seen:
-            seen.add(key); results.append(r)
+        if not key or key in seen:
+            continue
+        # ── City relevance filter ──
+        # If city was specified, skip results that don't mention it anywhere
+        if city_lower:
+            haystack = (
+                r.get('snippet', '') + ' ' +
+                r.get('name', '') + ' ' +
+                r.get('website', '')
+            ).lower()
+            if city_lower not in haystack:
+                continue
+        seen.add(key); results.append(r)
 
     def extract(r):
         raw_name = r.get('name', ''); website = r.get('website', '')
