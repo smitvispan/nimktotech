@@ -268,8 +268,8 @@ def filter_and_rank_results(results, city, business_type, city_type):
                 score += 3
                 break
                 
-        # Only include if it has meaningful relevance
-        if score > 0:
+        # Only include if it has meaningful relevance AND contains the city name somewhere
+        if score > 0 and (city_in_name or city_in_website or city_in_snippet):
             scored_results.append((score, result))
     
     # Sort by score (descending) and return just the results

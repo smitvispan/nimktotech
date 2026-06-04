@@ -358,108 +358,117 @@ def bulk_scrape():
         return jsonify({'error': 'Business type required'}), 400
 
     import concurrent.futures as cf
+    import time
 
-    # Phase 1: Maximum search angles — 14+ queries for 80+ results
-    # Unquoted city → DuckDuckGo gives more results; city-filtering applied in post-step
-    has_city = bool(city)
-    queries = []
+    city_lower = city.lower() if city else ''
+    has_city   = bool(city)
+
+    # ─────────────────────────────────────────────────────
+    # PHASE 1 — Build queries
+    # Strategy: two tiers
+    #   Tier A (guaranteed city): site: queries with city embedded in path
+    #   Tier B (broad city):      open queries with city as keyword
+    # ─────────────────────────────────────────────────────
     if has_city:
-        queries = [
-            # Structured B2B/local directories (city in URL automatically)
-            f"site:indiamart.com {business_type} {city}",
-            f"site:justdial.com {business_type} {city}",
-            f"site:sulekha.com {business_type} {city}",
-            f"site:tradeindia.com {business_type} {city}",
-            f"site:exportersindia.com {business_type} {city}",
-            f"site:yellowpages.in {business_type} {city}",
-            # LinkedIn (people + companies)
-            f"site:linkedin.com/in/ {business_type} {city}",
-            f"site:linkedin.com/company/ {business_type} {city}",
-            # Direct web searches
-            f"{business_type} in {city}",
-            f"{business_type} company {city}",
-            f"{business_type} supplier {city}",
-            f"{business_type} manufacturer {city}",
-            f"{business_type} dealer {city} contact phone",
-            f"top {business_type} companies {city}",
-            f"{business_type} {city} Gujarat India",
-            f"{business_type} shop {city} India",
+        cl = city.lower()     # e.g. "rajkot"
+        cu = city.title()     # e.g. "Rajkot"
+
+        tier_a = [
+            # City embedded IN the site: path — these URLs will contain the city
+            f'site:indiamart.com/{cl} {business_type}',
+            f'site:justdial.com/{cu} {business_type}',
+            f'site:sulekha.com/{cl} {business_type}',
+            f'site:tradeindia.com/{cl} {business_type}',
+            f'site:exportersindia.com/{cl} {business_type}',
+            f'site:yellowpages.in/{cl} {business_type}',
+            # Quoted city — forces DuckDuckGo to match exact city name
+            f'"{cu}" site:indiamart.com {business_type}',
+            f'"{cu}" site:justdial.com {business_type}',
+            f'"{cu}" site:sulekha.com {business_type}',
+            f'"{cu}" site:tradeindia.com {business_type}',
         ]
+        tier_b = [
+            f'"{cu}" {business_type} company Gujarat India',
+            f'"{cu}" {business_type} supplier phone email',
+            f'"{cu}" {business_type} manufacturer contact',
+            f'"{cu}" {business_type} dealer Gujarat',
+            f'"{cu}" {business_type} shop store Gujarat',
+            f'site:linkedin.com/in/ "{cu}" {business_type}',
+            f'site:linkedin.com/company/ "{cu}" {business_type}',
+            f'"{cu}" {business_type} Gujarat contact number',
+        ]
+        queries = tier_a + tier_b
     else:
         queries = [
-            f"site:indiamart.com {business_type} India",
-            f"site:justdial.com {business_type} India",
-            f"site:sulekha.com {business_type} India",
-            f"site:tradeindia.com {business_type} India",
-            f"site:exportersindia.com {business_type} India",
-            f"site:yellowpages.in {business_type}",
-            f"site:linkedin.com/in/ {business_type} India",
-            f"site:linkedin.com/company/ {business_type} India",
-            f"{business_type} company India",
-            f"{business_type} supplier India",
-            f"{business_type} manufacturer India contact",
-            f"{business_type} dealer India phone email",
-            f"top {business_type} companies India",
-            f"{business_type} India directory",
+            f'site:indiamart.com {business_type} India',
+            f'site:justdial.com {business_type} India',
+            f'site:sulekha.com {business_type} India',
+            f'site:tradeindia.com {business_type} India',
+            f'site:exportersindia.com {business_type} India',
+            f'site:yellowpages.in {business_type}',
+            f'site:linkedin.com/in/ {business_type} India',
+            f'site:linkedin.com/company/ {business_type} India',
+            f'{business_type} company India',
+            f'{business_type} supplier India contact',
+            f'{business_type} manufacturer India phone',
+            f'top {business_type} companies India',
         ]
 
-    import time
+    # ─────────────────────────────────────────────────────
+    # PHASE 2 — Collect raw results
+    # Try multiple backends per query to get more volume
+    # ─────────────────────────────────────────────────────
     all_raw = []
-    # Single backend per query with higher max_results — lite and html return same data
     for q in queries:
-        try:
-            res = search_web(q, max_results=50, backend='lite')
-            all_raw.extend(res)
-            time.sleep(0.4)
-        except Exception as e:
-            print(f"Search query error for '{q}': {e}")
-        if len(all_raw) >= 400:
+        for backend in ['api', 'lite', 'html']:
+            try:
+                res = search_web(q, max_results=50, backend=backend)
+                if res:
+                    all_raw.extend(res)
+                    time.sleep(0.3)
+                    break   # Got results — don't need next backend for this query
+            except Exception as e:
+                print(f"Search '{q}' backend={backend}: {e}")
+        if len(all_raw) >= 500:
             break
 
-    # ── City relevance SCORING (no hard drop) ──
-    # City results sort to top; non-city results appear at bottom
-    # This preserves 80+ total results while Rajkot ones come first
-    city_lower = city.lower() if city else ''
-    INDIA_DIRS = ['indiamart.com', 'justdial.com', 'sulekha.com', 'tradeindia.com',
-                  'exportersindia.com', 'yellowpages.in']
-    INDIAN_STATES = ['gujarat', 'maharashtra', 'rajasthan', 'punjab', 'india',
-                     'delhi', 'mumbai', 'ahmedabad', 'surat', 'vadodara']
+    # ─────────────────────────────────────────────────────
+    # PHASE 3 — Hard city filter + dedup
+    # ONLY keep results that mention the city somewhere
+    # ─────────────────────────────────────────────────────
+    BLACKLIST_PLACES = [
+        'washington', 'california', 'texas', 'florida', 'new york', 'ohio', 'illinois',
+        'michigan', 'arizona', 'new jersey', 'united states', 'canada', 'australia',
+        'uk ', 'united kingdom', 'england', 'germany', 'france', 'china', 'pakistan',
+        'lake', 'moses lake', ' wa ', ' ca ', ' tx ', ' fl ', ' ny ',
+    ]
 
-    def city_score(r):
-        """Higher = more city-relevant. Used for sorting, NOT filtering."""
-        score = 0
+    def is_city_match(r):
+        """Return True only if this result is about the searched city."""
         if not city_lower:
-            return 0
+            return True
         url  = r.get('website', '').lower()
         snip = r.get('snippet', '').lower()
         name = r.get('name', '').lower()
-        # City in URL → very strong signal (directory pages)
-        if city_lower in url: score += 10
-        # City in snippet
-        if city_lower in snip: score += 6
-        # City in title/name
-        if city_lower in name: score += 4
-        # Indian directory domain → trust it regardless
-        if any(d in url for d in INDIA_DIRS): score += 3
-        # Indian context in snippet (state, country)
-        if any(s in snip for s in INDIAN_STATES): score += 2
-        # Penalise obviously non-Indian results (USD, US states, etc.)
-        non_india = ['washington', 'california', 'texas', 'florida', 'new york',
-                     'canada', 'australia', '\$', 'zip code', 'united states']
-        if any(x in snip for x in non_india): score -= 8
-        return score
+        combined = url + ' ' + snip + ' ' + name
+        # Must mention the city
+        if city_lower not in combined:
+            return False
+        # Must NOT be a clearly foreign/different-city result
+        if any(place in snip for place in BLACKLIST_PLACES):
+            return False
+        return True
 
-    seen = set(); scored = []
+    seen = set(); results = []
     for r in all_raw:
         key = re.sub(r'[^a-z0-9]', '', r.get('name', '').lower())[:30]
         if not key or key in seen:
             continue
+        if not is_city_match(r):
+            continue
         seen.add(key)
-        scored.append((city_score(r), r))
+        results.append(r)
 
-    # Sort by city score descending, then extract
-    scored.sort(key=lambda x: -x[0])
-    results = [r for _, r in scored]
 
 
     def extract(r):
@@ -557,9 +566,8 @@ def bulk_scrape():
     except Exception as e:
         print(f"LinkedIn search error: {e}")
 
-    # Sort: city-relevance first, then contact richness
+    # Sort: contact-richness first (all results are already city-filtered)
     final.sort(key=lambda f: -(
-        (10 if city_lower and city_lower in (f.get('snippet','') + f.get('name','')).lower() else 0) +
         len(f.get('phones',[])) * 3 +
         len(f.get('emails',[])) * 2 +
         (2 if f.get('owner_name') else 0) +
