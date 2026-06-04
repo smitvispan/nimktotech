@@ -360,29 +360,30 @@ def bulk_scrape():
     import concurrent.futures as cf
 
     # Phase 1: Maximum search angles — 14+ queries for 80+ results
-    # City is quoted in every query so DuckDuckGo returns city-specific results only
+    # Unquoted city → DuckDuckGo gives more results; city-filtering applied in post-step
     has_city = bool(city)
     queries = []
     if has_city:
-        cq = f'"{city}"'  # quoted city for precision
         queries = [
-            # Structured B2B/local directories
-            f"site:indiamart.com {business_type} {cq}",
-            f"site:justdial.com {business_type} {cq}",
-            f"site:sulekha.com {business_type} {cq}",
-            f"site:tradeindia.com {business_type} {cq}",
-            f"site:exportersindia.com {business_type} {cq}",
-            f"site:yellowpages.in {business_type} {cq}",
+            # Structured B2B/local directories (city in URL automatically)
+            f"site:indiamart.com {business_type} {city}",
+            f"site:justdial.com {business_type} {city}",
+            f"site:sulekha.com {business_type} {city}",
+            f"site:tradeindia.com {business_type} {city}",
+            f"site:exportersindia.com {business_type} {city}",
+            f"site:yellowpages.in {business_type} {city}",
             # LinkedIn (people + companies)
-            f"site:linkedin.com/in/ {business_type} {cq}",
-            f"site:linkedin.com/company/ {business_type} {cq}",
-            # Direct web searches — city quoted
-            f"{business_type} in {cq}",
-            f"{business_type} company {cq}",
-            f"{business_type} supplier {cq}",
-            f"{business_type} manufacturer {cq}",
-            f"{business_type} dealer {cq} contact phone",
-            f"top {business_type} companies {cq}",
+            f"site:linkedin.com/in/ {business_type} {city}",
+            f"site:linkedin.com/company/ {business_type} {city}",
+            # Direct web searches
+            f"{business_type} in {city}",
+            f"{business_type} company {city}",
+            f"{business_type} supplier {city}",
+            f"{business_type} manufacturer {city}",
+            f"{business_type} dealer {city} contact phone",
+            f"top {business_type} companies {city}",
+            f"{business_type} {city} Gujarat India",
+            f"{business_type} shop {city} India",
         ]
     else:
         queries = [
@@ -418,23 +419,34 @@ def bulk_scrape():
             if len(all_raw) >= 300:
                 break
 
-    seen = set(); results = []
+    # ── Smart city-relevance filter ──
+    # INDIAN DIRECTORY SITES: if city is in the URL → trusted, keep it
+    # ALL OTHER SITES: city must appear in snippet OR title
+    DIRECTORY_DOMAINS = ['indiamart.com', 'justdial.com', 'sulekha.com', 'tradeindia.com',
+                         'exportersindia.com', 'yellowpages.in', 'linkedin.com']
     city_lower = city.lower() if city else ''
+
+    def is_city_relevant(r):
+        if not city_lower:
+            return True
+        url = r.get('website', '').lower()
+        # For directory domains: trust if city appears in URL
+        if any(d in url for d in DIRECTORY_DOMAINS):
+            if city_lower in url:
+                return True
+        # For all sites: check snippet + name
+        haystack = (r.get('snippet', '') + ' ' + r.get('name', '')).lower()
+        return city_lower in haystack
+
+    seen = set(); results = []
     for r in all_raw:
         key = re.sub(r'[^a-z0-9]', '', r.get('name', '').lower())[:30]
         if not key or key in seen:
             continue
-        # ── City relevance filter ──
-        # If city was specified, skip results that don't mention it anywhere
-        if city_lower:
-            haystack = (
-                r.get('snippet', '') + ' ' +
-                r.get('name', '') + ' ' +
-                r.get('website', '')
-            ).lower()
-            if city_lower not in haystack:
-                continue
+        if not is_city_relevant(r):
+            continue
         seen.add(key); results.append(r)
+
 
     def extract(r):
         raw_name = r.get('name', ''); website = r.get('website', '')
