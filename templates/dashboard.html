@@ -224,6 +224,16 @@
         .tag-owner { background: #fffbeb; color: #d97706; }
         .tag-empty { color: #cbd5e1; font-size: 12px; font-style: italic; }
         .snippet-text { font-size: 12px; color: var(--text-muted); max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* Source badges */
+        .src-badge { display: inline-block; padding: 2px 9px; border-radius: 100px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .src-indiamart  { background: #fef3c7; color: #92400e; }
+        .src-justdial   { background: #fee2e2; color: #991b1b; }
+        .src-linkedin   { background: #dbeafe; color: #1e40af; }
+        .src-tradeindia { background: #dcfce7; color: #166534; }
+        .src-sulekha    { background: #fce7f3; color: #9d174d; }
+        .src-exporters  { background: #ede9fe; color: #4c1d95; }
+        .src-yellowpages{ background: #fef9c3; color: #713f12; }
+        .src-web        { background: #f1f5f9; color: #475569; }
 
         /* ── Empty state ── */
         .empty-state {
@@ -543,14 +553,24 @@
             const hasDetails = data[0].emails !== undefined;
 
             let html = '<div class="table-wrap"><table><thead><tr>';
-            html += '<th>#</th><th>Business Name</th><th>Website</th>';
+            html += '<th>#</th><th>Business Name</th><th>Source</th><th>Website</th>';
             if (hasDetails) html += '<th>Contact</th><th>LinkedIn</th><th>Owner</th>';
             html += '<th>About</th></tr></thead><tbody>';
 
+            const srcClass = s => {
+                if (!s) return 'src-web';
+                const m = {'indiamart':'src-indiamart','justdial':'src-justdial','linkedin':'src-linkedin',
+                    'tradeindia':'src-tradeindia','sulekha':'src-sulekha','exporters':'src-exporters',
+                    'yellowpages':'src-yellowpages'};
+                const k = Object.keys(m).find(x => s.toLowerCase().includes(x));
+                return k ? m[k] : 'src-web';
+            };
             data.forEach((b, i) => {
+                const src = b.source || 'Web';
                 html += `<tr>
                     <td class="num-col">${i + 1}</td>
                     <td><span class="biz-name">${b.name || '-'}</span></td>
+                    <td><span class="src-badge ${srcClass(src)}">${src}</span></td>
                     <td>${b.website ? `<a href="${b.website}" target="_blank" class="visit-link"><i class="bi bi-box-arrow-up-right"></i> Visit</a>` : '<span class="tag-empty">—</span>'}</td>`;
                 if (hasDetails) {
                     // Contact column: phones + emails

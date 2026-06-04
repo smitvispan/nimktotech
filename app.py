@@ -98,7 +98,7 @@ init_db()
 EXCLUDE_DOMAINS = ['facebook.com', 'instagram.com', 'twitter.com', 'youtube.com',
                    'tripadvisor', 'pinterest.com', 'linkedin.com']
 
-def search_web(query, max_results=30, page=1, backend='auto'):
+def search_web(query, max_results=30, page=1, backend='lite'):
     results = []
     try:
         ddgs = DDGS()
@@ -108,7 +108,8 @@ def search_web(query, max_results=30, page=1, backend='auto'):
             body = r.get('body', '').strip()
             if not title or len(title) < 5 or not href:
                 continue
-            if any(d in href.lower() for d in EXCLUDE_DOMAINS):
+            # Don't exclude a domain if it was explicitly requested in the query (e.g. site:linkedin.com)
+            if any(d in href.lower() for d in EXCLUDE_DOMAINS if d not in query.lower()):
                 continue
             results.append({'name': title, 'website': href, 'snippet': body[:300]})
     except Exception as e:
@@ -358,41 +359,62 @@ def bulk_scrape():
 
     import concurrent.futures as cf
 
-    # Phase 1: Maximum search angles with pagination
+    # Phase 1: Maximum search angles — 14+ queries for 80+ results
     has_city = bool(city)
     queries = []
     if has_city:
         queries = [
+            # Directory sites (structured listings with contact info)
             f"site:indiamart.com {business_type} {city}",
+            f"site:justdial.com {business_type} {city}",
+            f"site:sulekha.com {business_type} {city}",
             f"site:tradeindia.com {business_type} {city}",
-            f"{business_type} {city} dealers",
-            f"{business_type} {city} manufacturers",
-            f"{business_type} {city} phone contact",
-            f"{business_type} {city} address",
-            f"{business_type} {city} contact number",
-            f'"{business_type}" "{city}"',
+            f"site:exportersindia.com {business_type} {city}",
+            f"site:yellowpages.in {business_type} {city}",
+            # LinkedIn - people and companies
+            f"site:linkedin.com/in/ {business_type} owner {city}",
+            f"site:linkedin.com/company/ {business_type} {city}",
+            # Google-style open queries
+            f"{business_type} company in {city}",
+            f"{business_type} supplier {city}",
+            f"{business_type} manufacturer {city}",
+            f"{business_type} dealer {city} contact",
+            f"{business_type} {city} phone email",
+            f"top {business_type} companies in {city}",
         ]
-    queries += [
-        f"site:indiamart.com {business_type}",
-        f"site:tradeindia.com {business_type}",
-        f"{business_type} manufacturers india",
-        f"{business_type} dealers india",
-        f"{business_type} suppliers india",
-        f"{business_type} wholesale india",
-        f"{business_type} india phone email",
-        f'"{business_type}" phone india contact',
-    ]
+    else:
+        queries = [
+            f"site:indiamart.com {business_type} India",
+            f"site:justdial.com {business_type} India",
+            f"site:sulekha.com {business_type} India",
+            f"site:tradeindia.com {business_type} India",
+            f"site:exportersindia.com {business_type} India",
+            f"site:yellowpages.in {business_type}",
+            f"site:linkedin.com/in/ {business_type} owner India",
+            f"site:linkedin.com/company/ {business_type} India",
+            f"{business_type} company India",
+            f"{business_type} supplier India",
+            f"{business_type} manufacturer India contact",
+            f"{business_type} dealer India phone email",
+            f"top {business_type} companies India",
+            f"{business_type} India directory",
+        ]
 
+    import time
     all_raw = []
-    # Run each query with auto backend
-    all_tasks = [(q, 'auto') for q in queries]
-    with cf.ThreadPoolExecutor(max_workers=24) as pool:
-        futures = {pool.submit(lambda t=t: search_web(t[0], max_results=30, backend=t[1])): t for t in all_tasks}
-        for f in cf.as_completed(futures):
+    # Run each query sequentially with a small delay to avoid rate limiting
+    for q in queries:
+        for backend in ['lite', 'html']:
             try:
-                all_raw.extend(f.result())
-            except:
-                pass
+                res = search_web(q, max_results=30, backend=backend)
+                all_raw.extend(res)
+                time.sleep(0.3)
+                if len(all_raw) >= 300:
+                    break
+            except Exception as e:
+                print(f"Search query error for '{q}' backend={backend}: {e}")
+            if len(all_raw) >= 300:
+                break
 
     seen = set(); results = []
     for r in all_raw:
@@ -401,20 +423,49 @@ def bulk_scrape():
             seen.add(key); results.append(r)
 
     def extract(r):
-        name = r.get('name', ''); website = r.get('website', '')
+        raw_name = r.get('name', ''); website = r.get('website', '')
         snippet = r.get('snippet', '')[:250]
-        text = snippet + ' | ' + name
-        phones = re.findall(r'(\+91[-\s]?\d{5}[-\s]?\d{5}|\d{5}[-\s]?\d{5})', text)
-        phones = [re.sub(r'[^0-9]', '', p)[-10:] for p in phones]
-        phones = list(set(p for p in phones if len(p) == 10))[:3]
+        text = snippet + ' | ' + raw_name
+        
+        # Clean business name by stripping common source suffixes
+        name = raw_name
+        for suffix in [' - IndiaMart', '| Justdial', ' - LinkedIn', ' | LinkedIn', ' - Wikipedia', ' | Wikipedia', ' - TradeIndia']:
+            name = name.split(suffix)[0]
+        name = name.strip()
+
+        # Robust Indian phone extraction (mobile and landline)
+        phones_raw = re.findall(r'(?:\+91|0)?[-\s]?[6-9]\d{9}|0\d{2,4}[-\s]?\d{6,8}', text)
+        phones = []
+        for p in phones_raw:
+            cleaned = re.sub(r'[^0-9]', '', p)
+            if len(cleaned) == 10:
+                phones.append(cleaned)
+            elif len(cleaned) > 10 and cleaned.startswith('91'):
+                phones.append(cleaned[-10:])
+            elif len(cleaned) > 10 and cleaned.startswith('0'):
+                phones.append(cleaned[1:])
+        phones = list(set(phones))[:3]
+
         emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text)))[:3]
         owner = ''
         for pat in [r'(?:owner|proprietor|director|founder)[\s:]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)',
                     r'(?:Mr|Mrs|Ms|Shri|Prop)[.\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)']:
             m = re.search(pat, text[:500])
             if m and len(m.group(1).split()) >= 2: owner = m.group(1).strip(); break
+        # Detect source
+        source = 'Web'
+        url_lower = website.lower()
+        if 'indiamart.com' in url_lower: source = 'IndiaMart'
+        elif 'justdial.com' in url_lower: source = 'JustDial'
+        elif 'linkedin.com' in url_lower: source = 'LinkedIn'
+        elif 'tradeindia.com' in url_lower: source = 'TradeIndia'
+        elif 'sulekha.com' in url_lower: source = 'Sulekha'
+        elif 'exportersindia.com' in url_lower: source = 'ExportersIndia'
+        elif 'yellowpages' in url_lower: source = 'YellowPages'
+
         return {'name': name, 'website': website, 'snippet': snippet,
-            'emails': emails, 'linkedin': [], 'phones': phones, 'owner_name': owner, 'page_title': ''}
+            'emails': emails, 'linkedin': [], 'phones': phones, 'owner_name': owner,
+            'page_title': '', 'source': source}
 
     final = [extract(r) for r in results]
 
@@ -443,24 +494,26 @@ def bulk_scrape():
         with cf.ThreadPoolExecutor(max_workers=12) as pool:
             pool.map(lambda f: scrape_and_merge(f), remaining)
 
-    # Phase 3: Find LinkedIn profiles
+    # Phase 3: Find LinkedIn profiles (people + companies)
     try:
         ddgs = DDGS()
-        li_q = f'site:linkedin.com/in/ "{business_type}"'
-        if city:
-            li_q += f' "{city}"'
-        for r in ddgs.text(li_q, max_results=5):
-            url = r.get('href', '')
-            if 'linkedin.com/in/' in url:
-                li_name = r.get('title', '').replace(' - LinkedIn', '').strip()[:50]
-                snippet = r.get('body', '')[:200]
-                li_words = li_name.lower().split()[:3]
-                existing = next((f for f in final if any(w in f['name'].lower() for w in li_words if len(w) > 3)), None)
-                if existing:
-                    existing['linkedin'] = list(set(existing['linkedin'] + [url]))[:2]
-                else:
-                    final.append({'name': li_name, 'website': url, 'snippet': snippet,
-                        'emails': [], 'linkedin': [url], 'phones': [], 'owner_name': '', 'page_title': ''})
+        for li_pattern, li_label in [('linkedin.com/in/', 'person'), ('linkedin.com/company/', 'company')]:
+            li_q = f'site:{li_pattern} "{business_type}"'
+            if city:
+                li_q += f' "{city}"'
+            for r in ddgs.text(li_q, max_results=10):
+                url = r.get('href', '')
+                if li_pattern in url:
+                    li_name = r.get('title', '').replace(' - LinkedIn', '').replace(' | LinkedIn', '').strip()[:80]
+                    snippet = r.get('body', '')[:200]
+                    li_words = li_name.lower().split()[:4]
+                    existing = next((f for f in final if any(w in f['name'].lower() for w in li_words if len(w) > 3)), None)
+                    if existing:
+                        existing['linkedin'] = list(set(existing.get('linkedin', []) + [url]))[:2]
+                    else:
+                        final.append({'name': li_name, 'website': url, 'snippet': snippet,
+                            'emails': [], 'linkedin': [url], 'phones': [], 'owner_name': '', 'page_title': '',
+                            'source': f'LinkedIn ({li_label})'})
     except Exception as e:
         print(f"LinkedIn search error: {e}")
 
@@ -475,7 +528,7 @@ def bulk_scrape():
         db.commit(); cursor.close(); db.close()
     except: pass
 
-    return jsonify(final[:80])
+    return jsonify(final[:100])
 
 
 @app.route('/api/ai-scrape')
